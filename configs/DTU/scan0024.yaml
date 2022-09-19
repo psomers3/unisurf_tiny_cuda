@@ -1,7 +1,7 @@
 
 model:
   num_layers: 8
-  hidden_dim: 256
+  hidden_dim: 128
   octaves_pe: 6
   octaves_pe_views: 4
   skips: [4]
@@ -36,8 +36,8 @@ dataloading:
 training:
   type: unisurf
   out_dir:  out/DTU/scan0024/
-  n_training_points: 20000
-  batch_size: 128
+  n_training_points: 12000
+  batch_size: 64
   learning_rate: 0.0001
   weight_decay: 0.0
   scheduler_milestones: [4000, 8000]
@@ -48,6 +48,6 @@ training:
   checkpoint_every: 5000
   visualize_skip: 20
   lambda_l1_rgb: 1.0
-  lambda_normals: 0.005
+  lambda_normals: 0.02
   lambda_occ_prob: 0.001
   vis_resolution: [300, 400]

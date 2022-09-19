@@ -23,7 +23,7 @@ class Renderer(nn.Module):
         self.depth_range = [0, 4]
         self.n_max_network_queries = cfg['n_max_network_queries']
         self.white_background = cfg['white_background']
-        self.cfg=cfg
+        self.cfg = cfg
 
         self.model = model.to(device)
         if model_bg is not None:
@@ -32,7 +32,7 @@ class Renderer(nn.Module):
             self.model_bg = None
 
     def forward(self, pixels, camera_mat, world_mat, scale_mat, 
-                rendering_technique, add_noise=True, eval_=False, it=0) -> dict:
+                rendering_technique, add_noise=True, eval_=False, it=0, **kwargs) -> dict:
         if rendering_technique == 'unisurf':
             out_dict = self.unisurf(
                 pixels, camera_mat, world_mat, 
@@ -302,7 +302,7 @@ class Renderer(nn.Module):
 
         return out_dict
 
-    def onsurf_renderer(self, pixels, camera_mat, world_mat, scale_mat):
+    def onsurf_renderer(self, pixels, camera_mat, world_mat, scale_mat, **kwargs):
         batch_size, num_pixels, _ = pixels.shape
         n_points = num_pixels
         device = self._device
@@ -359,8 +359,9 @@ class Renderer(nn.Module):
 
         return out_dict
 
-    def ray_marching(self, ray0, ray_direction, c=None, n_steps=(128, 129), n_secant_steps=8,
-                     depth_range=(0., 2.4), max_points=3500000, rad=1.0):
+    def ray_marching(self, ray0, ray_direction, model, c=None,
+                              tau=0.5, n_steps=[128, 129], n_secant_steps=8,
+                              depth_range=[0., 2.4], max_points=3500000, rad=1.0):
         """ Performs ray marching to detect surface points.
 
         The function returns the surface points as well as d_i of the formula

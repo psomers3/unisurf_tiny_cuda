@@ -33,7 +33,7 @@ class NGP(nn.Module):
         super().__init__()
 
         self.rgb_act = rgb_act
-        rescale = model_config['rescale'] * 4
+        rescale = model_config['rescale'] * 2
         # scene bounding box
         self.scale = rescale
         self.register_buffer('center', torch.zeros(1, 3))
@@ -50,7 +50,7 @@ class NGP(nn.Module):
         # constants
         L = 16
         F = 2
-        log2_T = 19
+        log2_T = 22
         N_min = 16
         b = np.exp(np.log(2048 * rescale / N_min) / (L - 1))
         print(f'GridEncoding: Nmin={N_min} b={b:.5f} F={F} T=2^{log2_T} L={L}')
@@ -69,7 +69,7 @@ class NGP(nn.Module):
                                                              "otype": "FullyFusedMLP",
                                                              "activation": "ReLU",
                                                              "output_activation": "None",
-                                                             "n_neurons": 128,
+                                                             "n_neurons": min(128, model_config['hidden_dim']),
                                                              "n_hidden_layers": model_config['num_layers']})
 
         self.dir_encoder = tcnn.Encoding(n_input_dims=3, encoding_config={"otype": "SphericalHarmonics", "degree": 4})
@@ -79,7 +79,7 @@ class NGP(nn.Module):
                                     network_config={"otype": "FullyFusedMLP",
                                                     "activation": "ReLU",
                                                     "output_activation": self.rgb_act,
-                                                    "n_neurons": 128,
+                                                    "n_neurons": min(128, model_config['hidden_dim']),
                                                     "n_hidden_layers": 2})
 
         if self.rgb_act == 'None':  # rgb_net output is log-radiance

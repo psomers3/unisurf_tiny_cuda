@@ -50,7 +50,7 @@ data_test = next(iter_test)
 model_cfg = cfg['model']
 
 if model_cfg.get('tcnn'):
-    model = NGP(model_cfg['rescale'])
+    model = NGP(model_cfg)
 else:
     model = mdl.NeuralNetwork(model_cfg)
 print(model)
