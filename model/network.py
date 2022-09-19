@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class NeuralNetwork(nn.Module):
@@ -32,8 +31,8 @@ class NeuralNetwork(nn.Module):
         self.transform_points = PositionalEncoding(L=self.octaves_pe)
         self.transform_points_view = PositionalEncoding(L=self.octaves_pe_views)
 
-        ### geo network
-        dims_geo = [dim_embed]+ [ hidden_size if i in self.skips else hidden_size for i in range(0, self.num_layers)] + [self.feat_size+1] 
+        # geo network
+        dims_geo = [dim_embed] + [hidden_size if i in self.skips else hidden_size for i in range(0, self.num_layers)] + [self.feat_size+1]
         self.num_layers = len(dims_geo)
         for l in range(0, self.num_layers - 1):
             if l + 1 in self.skips:
@@ -59,14 +58,13 @@ class NeuralNetwork(nn.Module):
                     torch.nn.init.constant_(lin.bias, 0.0)
                     torch.nn.init.normal_(lin.weight, 0.0, np.sqrt(2) / np.sqrt(out_dim))
 
-            
             lin = nn.utils.weight_norm(lin)
 
             setattr(self, "lin" + str(l), lin)
 
         self.softplus = nn.Softplus(beta=100)
 
-        ## appearance network
+        # appearance network
         dims_view = [dim_embed_view]+ [ hidden_size for i in range(0, 4)] + [3]
 
         self.num_layers_app = len(dims_view)
@@ -90,7 +88,7 @@ class NeuralNetwork(nn.Module):
                 x = torch.cat([x, pe], -1) / np.sqrt(2)
             x = lin(x)
             if l < self.num_layers - 2:
-                x = self.softplus(x)     
+                x = self.softplus(x)
         return x
     
     def infer_app(self, points, normals, view_dirs, feature_vectors):
@@ -105,9 +103,10 @@ class NeuralNetwork(nn.Module):
         return x
 
     def gradient(self, p):
+        print('gradient_p', p.shape)
         with torch.enable_grad():
             p.requires_grad_(True)
-            y = self.infer_occ(p)[...,:1]
+            y = self.infer_occ(p)[..., :1]
             d_output = torch.ones_like(y, requires_grad=False, device=y.device)
             gradients = torch.autograd.grad(
                 outputs=y,
@@ -121,23 +120,25 @@ class NeuralNetwork(nn.Module):
     def forward(self, p, ray_d=None, only_occupancy=False, return_logits=False,return_addocc=False, noise=False, **kwargs):
         x = self.infer_occ(p)
         if only_occupancy:
-            return self.sigmoid(x[...,:1] * -10.0)
+            sigmoids = self.sigmoid(x[..., :1] * -10.0)
+            return sigmoids
         elif ray_d is not None:
             
             input_views = ray_d / torch.norm(ray_d, dim=-1, keepdim=True)
             input_views = self.transform_points_view(input_views)
-            normals =  self.gradient(p)
+            normals = self.gradient(p)
             #normals = n / (torch.norm(n, dim=-1, keepdim=True)+1e-6)
-            rgb = self.infer_app(p, normals, input_views, x[...,1:])
+            rgb = self.infer_app(p, normals, input_views, x[..., 1:])
             if return_addocc:
                 if noise:
-                    return rgb, self.sigmoid(x[...,:1] * -10.0 )
+                    return rgb, self.sigmoid(x[..., :1] * -10.0)
                 else: 
-                    return rgb, self.sigmoid(x[...,:1] * -10.0 )
+                    return rgb, self.sigmoid(x[..., :1] * -10.0)
             else:
                 return rgb
         elif return_logits:
-            return -1*x[...,:1]
+            print('returning_logits')
+            return -1 * x[..., :1]
 
 
 class PositionalEncoding(object):

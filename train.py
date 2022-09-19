@@ -1,21 +1,17 @@
 import os
-import sys
 import logging
 import time
-import shutil
 import argparse
 
 import numpy as np
-import pandas as pd
-from PIL import Image
-from tqdm import tqdm
-from collections import defaultdict
 
 import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 import dataloading as dl
 import model as mdl
+from model.ngp_network import NGP
+from apex.optimizers import FusedAdam
 
 logger_py = logging.getLogger(__name__)
 
@@ -24,17 +20,15 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 # Arguments
-parser = argparse.ArgumentParser(
-    description='Training of UNISURF model'
-)
-parser.add_argument('config', type=str, help='Path to config file.')
+parser = argparse.ArgumentParser(description='Training of UNISURF model')
+parser.add_argument('config', type=str, help='Path to config file.', default='configs/default.yaml')
 parser.add_argument('--no-cuda', action='store_true', help='Do not use cuda.')
 parser.add_argument('--exit-after', type=int, default=-1,
                     help='Checkpoint and exit after specified number of '
                          'seconds with exit code 2.')
 
 args = parser.parse_args()
-cfg = dl.load_config(args.config, 'configs/default.yaml')
+cfg = dl.load_config(args.config)
 is_cuda = (torch.cuda.is_available() and not args.no_cuda)
 device = torch.device("cuda" if is_cuda else "cpu")
 
@@ -54,7 +48,11 @@ data_test = next(iter_test)
 
 # init network
 model_cfg = cfg['model']
-model = mdl.NeuralNetwork(model_cfg)
+
+if model_cfg.get('tcnn'):
+    model = NGP(model_cfg['rescale'])
+else:
+    model = mdl.NeuralNetwork(model_cfg)
 print(model)
 
 # init renderer
@@ -64,6 +62,7 @@ renderer = mdl.Renderer(model, rendering_cfg, device=device)
 # init optimizer
 weight_decay = cfg['training']['weight_decay']
 optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+optimizer = FusedAdam(model.parameters(), lr, eps=1e-15)
 
 # init training
 training_cfg = cfg['training']
@@ -131,17 +130,17 @@ while True:
                         data_test, 
                         cfg['training']['vis_resolution'], 
                         it, out_render_path)
-            #logger.add_image('rgb', val_rgb, it)
+            # logger.add_image('rgb', val_rgb, it)
         
         # Save checkpoint
-        if (checkpoint_every > 0 and (it % checkpoint_every) == 0):
+        if checkpoint_every > 0 and (it % checkpoint_every) == 0:
             logger_py.info('Saving checkpoint')
             print('Saving checkpoint')
             checkpoint_io.save('model.pt', epoch_it=epoch_it, it=it,
                                loss_val_best=metric_val_best)
 
         # Backup if necessary
-        if (backup_every > 0 and (it % backup_every) == 0):
+        if backup_every > 0 and (it % backup_every) == 0:
             logger_py.info('Backup checkpoint')
             checkpoint_io.save('model_%d.pt' % it, epoch_it=epoch_it, it=it,
                                loss_val_best=metric_val_best)

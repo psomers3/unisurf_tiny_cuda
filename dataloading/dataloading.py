@@ -66,7 +66,7 @@ def get_dataloader(cfg, mode='train', spilt_model_for_images=True,
 
 
 def get_data_fields(cfg, mode='train', with_mask=False):
-    ''' Returns the data fields.
+    """ Returns the data fields.
 
     Args:
         cfg (dict): imported yaml config
@@ -74,7 +74,7 @@ def get_data_fields(cfg, mode='train', with_mask=False):
 
     Return:
         field (dict): datafield
-    '''
+    """
     resize_img_transform = ResizeImage(cfg['dataloading']['img_size'])
     all_images = mode == 'render'
     random_view = True if (
@@ -103,13 +103,13 @@ def get_data_fields(cfg, mode='train', with_mask=False):
 
 
 class ResizeImage(object):
-    ''' Resize image transformation class.
+    """ Resize image transformation class.
 
     It resizes an image and transforms it to a PyTorch tensor.
 
     Args:
         img_size (int or tuple): resized image size
-    '''
+    """
     def __init__(self, img_size):
         if img_size is None:
             self.transform = transforms.Compose([
@@ -124,18 +124,17 @@ class ResizeImage(object):
         return img
 
 
-
 class Shapes3dDataset(data.Dataset):
-    '''Dataset class for image data of one 3D shape
+    """Dataset class for image data of one 3D shape
 
     Dataset class that includes caching
-    '''
+    """
 
     def __init__(self, dataset_folder, fields, split=None,
                  categories=None, no_except=True, transform=None,
                  shared_dict={}, n_views=24, cache_fields=False,
                  split_model_for_images=False):
-        ''' Initialization of the the 3D shape dataset.
+        ''' Initialization of the 3D shape dataset.
 
         Args:
             dataset_folder (str): dataset folder

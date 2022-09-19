@@ -7,13 +7,13 @@ import datetime
 
 
 class CheckpointIO(object):
-    ''' CheckpointIO class.
+    """ CheckpointIO class.
 
     It handles saving and loading checkpoints.
 
     Args:
         checkpoint_dir (str): path where checkpoints are saved
-    '''
+    """
 
     def __init__(self, checkpoint_dir='./chkpts', **kwargs):
         self.module_dict = kwargs

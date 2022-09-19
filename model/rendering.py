@@ -1,21 +1,20 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch import distributions as dist
-from .common import (
-    get_mask, image_points_to_world, origin_to_world)
+from .common import get_mask, image_points_to_world, origin_to_world
 
 epsilon = 1e-6
+
+
 class Renderer(nn.Module):
-    ''' Renderer class containing unisurf
+    """ Renderer class containing unisurf
     surf rendering and phong rendering(adapted from IDR)
-    
+
     Args:
         model (nn.Module): model
         cfg (dict): network configs
         model_bg (nn.Module): model background (coming soon)
-    '''
+    """
 
     def __init__(self, model, cfg, device=None,
                  model_bg=None, **kwargs):
@@ -32,10 +31,8 @@ class Renderer(nn.Module):
         else:
             self.model_bg = None
 
-
     def forward(self, pixels, camera_mat, world_mat, scale_mat, 
-                      rendering_technique, add_noise=True, eval_=False,
-                      mask=None, it=0):
+                rendering_technique, add_noise=True, eval_=False, it=0) -> dict:
         if rendering_technique == 'unisurf':
             out_dict = self.unisurf(
                 pixels, camera_mat, world_mat, 
@@ -47,9 +44,7 @@ class Renderer(nn.Module):
             )
         elif rendering_technique == 'onsurf_renderer':
             out_dict = self.onsurf_renderer(
-                pixels, camera_mat, world_mat, 
-                scale_mat, it=it, add_noise=add_noise, 
-                mask_gt=mask, eval_=eval_
+                pixels, camera_mat, world_mat, scale_mat
             )
         else:
             print("Choose unisurf, phong_renderer or onsurf_renderer")
@@ -73,17 +68,17 @@ class Renderer(nn.Module):
         
         # Prepare camera projection
         pixels_world = image_points_to_world(
-            pixels, camera_mat, world_mat,scale_mat
+            pixels, camera_mat, world_mat, scale_mat
         )
         camera_world = origin_to_world(
             n_points, camera_mat, world_mat, scale_mat
         )
         ray_vector = (pixels_world - camera_world)
-        ray_vector = ray_vector/ray_vector.norm(2,2).unsqueeze(-1)
+        ray_vector = ray_vector/ray_vector.norm(2, 2).unsqueeze(-1)
         
         # Get sphere intersection
-        depth_intersect,_ = get_sphere_intersection(
-            camera_world[:,0], ray_vector, r=rad
+        depth_intersect, _ = get_sphere_intersection(
+            camera_world[:, 0], ray_vector, r=rad
         )
         
         # Find surface
@@ -91,34 +86,32 @@ class Renderer(nn.Module):
             d_i = self.ray_marching(
                 camera_world, ray_vector, self.model,
                 n_secant_steps=8, 
-                n_steps=[int(ray_steps),int(ray_steps)+1], 
+                n_steps=(int(ray_steps), int(ray_steps)+1),
                 rad=rad
             )
 
         # Get mask for where first evaluation point is occupied
         mask_zero_occupied = d_i == 0
-        d_i = d_i.detach()
 
+        d_i = d_i.detach()
         # Get mask for predicted depth
         mask_pred = get_mask(d_i).detach()
-        
+
         with torch.no_grad():
-            dists =  torch.ones_like(d_i).to(device)
+            dists = torch.ones_like(d_i).to(device)
             dists[mask_pred] = d_i[mask_pred]
             dists[mask_zero_occupied] = 0.
             network_object_mask = mask_pred & ~mask_zero_occupied
             network_object_mask = network_object_mask[0]
             dists = dists[0]
-
         # Project depth to 3d poinsts
         camera_world = camera_world.reshape(-1, 3)
         ray_vector = ray_vector.reshape(-1, 3)
        
         points = camera_world + ray_vector * dists.unsqueeze(-1)
-        points = points.view(-1,3)
-
+        points = points.view(-1, 3)
         # Define interval
-        depth_intersect[:,:,0] = torch.Tensor([0.0]).cuda() 
+        depth_intersect[:, :, 0] = torch.Tensor([0.0]).cuda()
         dists_intersect = depth_intersect.reshape(-1, 2)
 
         d_inter = dists[network_object_mask]
@@ -128,10 +121,9 @@ class Renderer(nn.Module):
 
         dnp = d_inter - delta
         dfp = d_inter + delta
-        dnp = torch.where(dnp < depth_range[0].float().to(device),\
-            depth_range[0].float().to(device), dnp)
-        dfp = torch.where(dfp >  d_sphere_surf,  d_sphere_surf, dfp)
-        if (dnp!=0.0).all() and it > 5000:
+        dnp = torch.where(dnp < depth_range[0].float().to(device), depth_range[0].float().to(device), dnp)
+        dfp = torch.where(dfp > d_sphere_surf, d_sphere_surf, dfp)
+        if (dnp != 0.0).all() and it > 5000:
             full_steps = steps+steps_outside
         else:
             full_steps = steps
@@ -161,8 +153,8 @@ class Renderer(nn.Module):
         if full_steps != steps:
             d_binterval = torch.linspace(0., 1., steps=steps_outside, device=device)
             d_binterval = d_binterval.view(1, 1, -1).repeat(batch_size, d_inter.shape[0], 1)
-            d_binterval =  depth_range[0] * (1. - d_binterval) + (dnp).view(1, -1, 1)* d_binterval
-            d1,_ = torch.sort(torch.cat([d_binterval, d_interval],dim=-1), dim=-1)
+            d_binterval = depth_range[0] * (1. - d_binterval) + dnp.view(1, -1, 1) * d_binterval
+            d1, _ = torch.sort(torch.cat([d_binterval, d_interval], dim=-1), dim=-1)
         else:
             d1 = d_interval
 
@@ -179,8 +171,8 @@ class Renderer(nn.Module):
 
         # Merge rendering points
         p_fg = torch.zeros(batch_size * n_points, full_steps, 3, device=device)
-        p_fg[~network_object_mask] =  p_noiter.view(-1, full_steps,3)
-        p_fg[network_object_mask] =  p_iter.view(-1, full_steps,3)
+        p_fg[~network_object_mask] = p_noiter.view(-1, full_steps,3)
+        p_fg[network_object_mask] = p_iter.view(-1, full_steps,3)
         p_fg = p_fg.reshape(-1, 3)
         ray_vector_fg = ray_vector.unsqueeze(-2).repeat(1, 1, full_steps, 1)
         ray_vector_fg = -1*ray_vector_fg.reshape(-1, 3)
@@ -204,20 +196,26 @@ class Renderer(nn.Module):
         alpha = logits_alpha_fg.view(batch_size * n_points, full_steps)
 
         rgb = rgb
-        weights = alpha * torch.cumprod(torch.cat([torch.ones((rgb.shape[0], 1), device=device), 1.-alpha + epsilon ], -1), -1)[:, :-1]
+        weights = alpha * torch.cumprod(torch.cat([torch.ones((rgb.shape[0], 1),
+                                                              device=device),
+                                                   1.-alpha + epsilon],
+                                                  -1), -1)[:, :-1]
         rgb_values = torch.sum(weights.unsqueeze(-1) * rgb, dim=-2)
         
         if not eval_:
             surface_mask = network_object_mask.view(-1)
             surface_points = points[surface_mask]
             N = surface_points.shape[0]
-            surface_points_neig = surface_points + (torch.rand_like(surface_points) - 0.5) * 0.01      
+            surface_points_neig = surface_points + (torch.rand_like(surface_points) - 0.5) * 0.01
             pp = torch.cat([surface_points, surface_points_neig], dim=0)
-            g = self.model.gradient(pp) 
+            pp.requires_grad = True
+            if len(pp) == 0:
+                g = torch.empty((0, 1, 3))
+            else:
+                g = self.model.gradient(pp)
             normals_ = g[:, 0, :] / (g[:, 0, :].norm(2, dim=1).unsqueeze(-1) + 10**(-5))
-            diff_norm =  torch.norm(normals_[:N] - normals_[N:], dim=-1)
+            diff_norm = torch.norm(normals_[:N] - normals_[N:], dim=-1)
         else:
-            surface_mask = network_object_mask
             diff_norm = None
 
         if self.white_background:
@@ -243,19 +241,18 @@ class Renderer(nn.Module):
         ray_vector = (pixels_world - camera_world)
         ray_vector = ray_vector/ray_vector.norm(2,2).unsqueeze(-1)
 
-        light_source = camera_world[0,0] 
-        #torch.Tensor([ 1.4719,  0.0284, -1.9837]).cuda().float()# # torch.Tensor([ 0.3074, -0.8482, -0.1880]).cuda().float() #camera_world[0,0] #torch.Tensor([ 1.4719,  0.0284, -1.9837]).cuda().float()
+        light_source = camera_world[0, 0]
         light = (light_source / light_source.norm(2)).unsqueeze(1).cuda()
     
-        diffuse_per = torch.Tensor([0.7,0.7,0.7]).float()
-        ambiant = torch.Tensor([0.3,0.3,0.3]).float()
-
+        diffuse_per = torch.Tensor([0.7, 0.7, 0.7]).float()
+        ambiant = torch.Tensor([0.3, 0.3, 0.3]).float()
 
         # run ray tracer / depth function --> 3D point on surface (differentiable)
         self.model.eval()
         with torch.no_grad():
             d_i = self.ray_marching(camera_world, ray_vector, self.model,
-                                         n_secant_steps=8,  n_steps=[int(512),int(512)+1], rad=rad)
+                                    n_secant_steps=8,
+                                    n_steps=(int(512), int(512)+1), rad=rad)
         # Get mask for where first evaluation point is occupied
         d_i = d_i.detach()
     
@@ -275,7 +272,7 @@ class Renderer(nn.Module):
             ray_vector = ray_vector.reshape(-1, 3)
 
             points = camera_world + ray_vector * dists.unsqueeze(-1)
-            points = points.view(-1,3)
+            points = points.view(-1, 3)
             view_vol = -1 * ray_vector.view(-1, 3)
             rgb_values = torch.ones_like(points).float().cuda()
 
@@ -285,17 +282,17 @@ class Renderer(nn.Module):
             # Derive Normals
             grad = []
             for pnts in torch.split(surface_points, 1000000, dim=0):
-                grad.append(self.model.gradient(pnts)[:,0,:].detach())
+                grad.append(self.model.gradient(pnts)[:, 0, :].detach())
                 torch.cuda.empty_cache()
-            grad = torch.cat(grad,0)
-            surface_normals = grad / grad.norm(2,1,keepdim=True)
+            grad = torch.cat(grad, 0)
+            surface_normals = grad / grad.norm(2, 1, keepdim=True)
 
         diffuse = torch.mm(surface_normals, light).clamp_min(0).repeat(1, 3) * diffuse_per.unsqueeze(0).cuda()
         rgb_values[network_object_mask] = (ambiant.unsqueeze(0).cuda() + diffuse).clamp_max(1.0)
 
         with torch.no_grad():
             rgb_val = torch.zeros(batch_size * n_points, 3, device=device)
-            rgb_val[network_object_mask] = self.model(surface_points, surface_view_vol)
+            rgb_val[network_object_mask] = self.model(surface_points, surface_view_vol).float()
 
         out_dict = {
             'rgb': rgb_values.reshape(batch_size, -1, 3),
@@ -305,14 +302,12 @@ class Renderer(nn.Module):
 
         return out_dict
 
-    def onsurf_renderer(self, pixels, camera_mat, world_mat, 
-                     scale_mat,  add_noise=False, 
-                     mask_gt=None, it=0, eval_=False):
+    def onsurf_renderer(self, pixels, camera_mat, world_mat, scale_mat):
         batch_size, num_pixels, _ = pixels.shape
         n_points = num_pixels
         device = self._device
         rad = self.cfg['radius']
-        pixels_world = image_points_to_world(pixels, camera_mat, world_mat,scale_mat)
+        pixels_world = image_points_to_world(pixels, camera_mat, world_mat, scale_mat)
         camera_world = origin_to_world(num_pixels, camera_mat, world_mat, scale_mat)
         ray_vector = (pixels_world - camera_world)
         ray_vector = ray_vector/ray_vector.norm(2,2).unsqueeze(-1)
@@ -320,8 +315,12 @@ class Renderer(nn.Module):
         # run ray tracer / depth function --> 3D point on surface (differentiable)
         self.model.eval()
         with torch.no_grad():
-            d_i = self.call_depth_function(camera_world, ray_vector, self.model,
-                                         it=8, n_steps=[int(512),int(512)+1], check_unitsphere_intersection=True, rad=rad)
+            d_i = self.call_depth_function(camera_world,
+                                           ray_vector,
+                                           self.model,
+                                           it=8,
+                                           n_steps=[int(512), int(512)+1],
+                                           check_unitsphere_intersection=True, rad=rad)
 
         # Get mask for where first evaluation point is occupied
         d_i = d_i.detach()
@@ -343,13 +342,12 @@ class Renderer(nn.Module):
         ray_vector = ray_vector.reshape(-1, 3)
 
         points = camera_world + ray_vector * dists.unsqueeze(-1)
-        points = points.view(-1,3)
+        points = points.view(-1, 3)
         view_vol = -1 * ray_vector.view(-1, 3)
 
         surface_points = points[network_object_mask]
         surface_view_vol = view_vol[network_object_mask]
 
-        
         rgb_val = torch.zeros(batch_size * n_points, 3, device=device)
         rgb_val[network_object_mask] = self.model(surface_points, surface_view_vol)
 
@@ -361,10 +359,9 @@ class Renderer(nn.Module):
 
         return out_dict
 
-    def ray_marching(self, ray0, ray_direction, model, c=None,
-                             tau=0.5, n_steps=[128, 129], n_secant_steps=8,
-                             depth_range=[0., 2.4], max_points=3500000, rad=1.0):
-        ''' Performs ray marching to detect surface points.
+    def ray_marching(self, ray0, ray_direction, c=None, n_steps=(128, 129), n_secant_steps=8,
+                     depth_range=(0., 2.4), max_points=3500000, rad=1.0):
+        """ Performs ray marching to detect surface points.
 
         The function returns the surface points as well as d_i of the formula
             ray(d_i) = ray0 + d_i * ray_direction
@@ -374,28 +371,20 @@ class Renderer(nn.Module):
         Args:
             ray0 (tensor): ray start points of dimension B x N x 3
             ray_direction (tensor):ray direction vectors of dim B x N x 3
-            model (nn.Module): model model to evaluate point occupancies
             c (tensor): latent conditioned code
-            tay (float): threshold value
+            rad (float): radius
             n_steps (tuple): interval from which the number of evaluation
                 steps if sampled
             n_secant_steps (int): number of secant refinement steps
-            depth_range (tuple): range of possible depth values (not relevant when
-                using cube intersection)
-            method (string): refinement method (default: secant)
-            check_cube_intersection (bool): whether to intersect rays with
-                unit cube for evaluation
+            depth_range (tuple): range of possible depth values
             max_points (int): max number of points loaded to GPU memory
-        '''
-        # Shotscuts
+        """
         batch_size, n_pts, D = ray0.shape
         device = ray0.device
         tau = 0.5
         n_steps = torch.randint(n_steps[0], n_steps[1], (1,)).item()
-
-            
-        depth_intersect, _ = get_sphere_intersection(ray0[:,0], ray_direction, r=rad)
-        d_intersect = depth_intersect[...,1]            
+        depth_intersect, _ = get_sphere_intersection(ray0[:, 0], ray_direction, r=rad)
+        d_intersect = depth_intersect[..., 1]
         
         d_proposal = torch.linspace(
             0, 1, steps=n_steps).view(
@@ -416,7 +405,6 @@ class Renderer(nn.Module):
 
         # Create mask for valid points where the first point is not occupied
         mask_0_not_occupied = val[:, :, 0] < 0
-
         # Calculate if sign change occurred and concat 1 (no sign change) in
         # last dimension
         sign_matrix = torch.cat([torch.sign(val[:, :, :-1] * val[:, :, 1:]),
@@ -455,7 +443,7 @@ class Renderer(nn.Module):
         ray0_masked = ray0[mask]
         ray_direction_masked = ray_direction[mask]
 
-        # write c in pointwise format
+        # write c in point-wise format
         if c is not None and c.shape[-1] != 0:
             c = c.unsqueeze(1).repeat(1, n_pts, 1)[mask]
         
@@ -471,9 +459,17 @@ class Renderer(nn.Module):
         d_pred_out[mask_0_not_occupied == 0] = 0
         return d_pred_out
 
-    def secant(self, f_low, f_high, d_low, d_high, n_secant_steps,
-                          ray0_masked, ray_direction_masked, tau, it=0):
-        ''' Runs the secant method for interval [d_low, d_high].
+    def secant(self,
+               f_low,
+               f_high,
+               d_low,
+               d_high,
+               n_secant_steps,
+               ray0_masked,
+               ray_direction_masked,
+               tau,
+               it=0):
+        """ Runs the secant method for interval [d_low, d_high].
 
         Args:
             d_low (tensor): start values for the interval
@@ -481,18 +477,15 @@ class Renderer(nn.Module):
             n_secant_steps (int): number of steps
             ray0_masked (tensor): masked ray start points
             ray_direction_masked (tensor): masked ray direction vectors
-            model (nn.Module): model model to evaluate point occupancies
-            c (tensor): latent conditioned code c
-            tau (float): threshold value in logits
-        '''
+-           tau (float): threshold value in logits
+        """
         d_pred = - f_low * (d_high - d_low) / (f_high - f_low) + d_low
         for i in range(n_secant_steps):
             p_mid = ray0_masked + d_pred.unsqueeze(-1) * ray_direction_masked
             with torch.no_grad():
-                f_mid = self.model(p_mid,  batchwise=False,
-                                only_occupancy=True, it=it)[...,0] - tau
+                f_mid = self.model(p_mid, batchwise=False, only_occupancy=True, it=it)[..., 0] - tau
+            f_mid = torch.flatten(f_mid)
             ind_low = f_mid < 0
-            ind_low = ind_low
             if ind_low.sum() > 0:
                 d_low[ind_low] = d_pred[ind_low]
                 f_low[ind_low] = f_mid[ind_low]
@@ -510,13 +503,12 @@ class Renderer(nn.Module):
         p_homo = torch.cat((p, torch.ones(batch_size, num_points, 1).to(device)), dim=2) / r
         return p_homo
 
-
     def to(self, device):
-        ''' Puts the model to the device.
+        """ Puts the model to the device.
 
         Args:
             device (device): pytorch device
-        '''
+        """
         model = super().to(device)
         model._device = device
         return model

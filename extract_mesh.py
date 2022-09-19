@@ -3,7 +3,6 @@ import argparse
 import time
 
 import torch
-from scipy.spatial.transform import Rotation as R
 
 from dataloading import get_dataloader, load_config
 from model.checkpoints import CheckpointIO

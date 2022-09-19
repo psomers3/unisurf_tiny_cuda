@@ -5,10 +5,11 @@ model:
   octaves_pe: 6
   octaves_pe_views: 4
   skips: [4]
-  geometric_init: True
+  geometric_init: False
   feat_size: 256
   rescale: 1.0
   sig_factor: 10.0
+  tcnn: True
 rendering:
   type: unisurf
   n_max_network_queries: 64000
@@ -29,14 +30,14 @@ dataloading:
   cache_fields: True
   n_views: 49
   batchsize: 1
-  n_workers: 8
+  n_workers: 64
   img_size:
   ignore_image_idx: []
 training:
   type: unisurf
   out_dir:  out/DTU/scan0024/
-  n_training_points: 1024
-  batch_size: 1
+  n_training_points: 20000
+  batch_size: 128
   learning_rate: 0.0001
   weight_decay: 0.0
   scheduler_milestones: [4000, 8000]
@@ -48,5 +49,5 @@ training:
   visualize_skip: 20
   lambda_l1_rgb: 1.0
   lambda_normals: 0.005
-  lambda_occ_prob: 0.0
+  lambda_occ_prob: 0.001
   vis_resolution: [300, 400]
