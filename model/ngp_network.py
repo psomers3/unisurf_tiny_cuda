@@ -1,3 +1,8 @@
+"""
+THIS CODE WAS HIJACKED FROM THE AMAZING WORK DONE AT
+https://github.com/kwea123/ngp_pl.git
+"""
+
 import torch
 from torch import nn
 import tinycudann as tcnn
